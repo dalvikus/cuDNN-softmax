@@ -24,12 +24,68 @@ int main(int argc, const char* argv[])
     float host_y0[NUM_CLASSES]={0.22363628, 0.6718406 , 0.09092373, 0.01359934};
     float host_y[NUM_CLASSES]; // to be compared with host_y0
 
-    // k: 1-based index
-    // set only if k == (1 + class_id)
-    // dy=[0,...,-1/yk,...0] in math; -1/yk if k=(1+class_id); otherwise, 0
+/**
+note that
+    i=class_id: fixed
+
+from the definition of softmax
+    yj = sf(xj) = exp(xj) / ∑exp(xk)    (1)
+                            k
+
+cross-entropy loss:
+    L = - ∑ ck * ln(yk) (2)
+          k
+where
+    ck = 1 if k=i
+       = 0 otherwise
+
+dL/dy
+-----
+from (2)
+    dL/dyj = -1/yi if j=i       (3)
+           = 0     otherwise
+
+dL/dx
+-----
+dL/dxj = ∑ dL/dyk * dyk/dxj
+         k
+
+from (3)
+    dL/dxj = -1/yi * dyi/dxj    (4)
+
+note that, from (1)
+    ln(yj) = xj - ln(∑exp(xk))  (5)
+                     k
+
+directly
+    dln(yj)/dxk = 1/yj * dyj/dxk
+note that this is a matrix.
+
+compared to (4), for i-th row in dln(yj)/dxk
+
+    dL/dxj = -dln(yi)/dxk   (6)
+
+from (1)
+    dln(yi)/dxk = d(xi - ln(∑exp(xj)))/dxk
+                            j
+                = dxi/dxk - dln(∑exp(xj))/dxk
+                                j
+                = dxi/dxk - (d(∑exp(xj))/dxk) / ∑exp(xj)
+                               j                j
+                = dxi/dxk - exp(xk)/∑exp(xj)
+                                    j
+                = dxi/dxk - yk
+inserting it into (6), we have
+    dL/dxj = yk - dxi/dxk   (7)
+
+in other words,
+    dL/dxk = yk - 1 if k=i      (8)
+           = yk     otherwise
+**/
     float host_dy[NUM_CLASSES]={0};
+    // from (3)
     host_dy[class_id] = -1 / host_y0[class_id];
-    // dx=[y1,...,yk-1,...,yn] in math; yk-1 if k=(1+class_id); otherwise, yk
+    // from (8)
     float host_dx0[NUM_CLASSES];
     for (int i = 0; i < NUM_CLASSES; ++i) {
         host_dx0[i] = host_y0[i];
