@@ -1,23 +1,41 @@
 #include <stdio.h>
+#include <stdlib.h> // atoi
+#include <assert.h> // assert
 #include "error_util.h"
 
-int main()
+const int BATCH_SIZE=1;
+const int NUM_CLASSES=4;
+const int NUM_ELEMENTS=BATCH_SIZE*NUM_CLASSES;
+const int NUM_BYTES=sizeof(float)*NUM_ELEMENTS;
+
+int main(int argc, const char* argv[])
 {
-    const int BATCH_SIZE=1;
-    const int NUM_CLASSES=4;
-    const int NUM_ELEMENTS=BATCH_SIZE*NUM_CLASSES;
-    const int NUM_BYTES=sizeof(float)*NUM_ELEMENTS;
+    int class_id=0;
+    if (argc > 1) {
+        class_id = atoi(argv[1]);
+        assert(0 <= class_id);
+        assert(class_id < NUM_CLASSES);
+    }
+    printf("INFO: class_id=%d\n", class_id);
 
-    float host_x[NUM_CLASSES]={1.1, 2.2, 0.2, -1.7};
-    const float c[NUM_CLASSES]={0, 0, 1, 0}; // class_id=2
-
-    // y=sf(x) in math
+    // any random values
+    const float host_x[NUM_CLASSES]={1.1, 2.2, 0.2, -1.7};
+    // y=sf(x) in math; yi=exp(xi)/∑exp(xj)
     float host_y0[NUM_CLASSES]={0.22363628, 0.6718406 , 0.09092373, 0.01359934};
     float host_y[NUM_CLASSES]; // to be compared with host_y0
-    // dy=[0,...,-1/yk,...0] in math
-    const float host_dy[NUM_CLASSES]={0, 0, -1/0.09092373, 0};
-    // dx=[y1,...,yk-1,...,yn] in math
-    const float host_dx0[NUM_CLASSES]={0.22363628, 0.6718406 , 0.09092373-1, 0.01359934};
+
+    // k: 1-based index
+    // set only if k == (1 + class_id)
+    // dy=[0,...,-1/yk,...0] in math; -1/yk if k=(1+class_id); otherwise, 0
+    float host_dy[NUM_CLASSES]={0};
+    host_dy[class_id] = -1 / host_y0[class_id];
+    // dx=[y1,...,yk-1,...,yn] in math; yk-1 if k=(1+class_id); otherwise, yk
+    float host_dx0[NUM_CLASSES];
+    for (int i = 0; i < NUM_CLASSES; ++i) {
+        host_dx0[i] = host_y0[i];
+        if (i == class_id)
+            host_dx0[i] -= 1;
+    }
     float host_dx[NUM_CLASSES]; // to be compared with host_dx0
 
     float *device_x; // copied from host_x
@@ -33,23 +51,23 @@ int main()
     checkCudaErrors(cudaMemcpy(device_dy, host_dy, NUM_BYTES, cudaMemcpyHostToDevice));
 
     // cuDNN...
-    float alpha = 1.f, beta = 0.f;
+    const float alpha = 1.f, beta = 0.f;
     cudnnHandle_t cudnnHandle;
-    cudnnTensorDescriptor_t fcTensor;
-    checkCUDNN(cudnnCreateTensorDescriptor(&fcTensor));
+    cudnnTensorDescriptor_t sfTensor;
+    checkCUDNN(cudnnCreateTensorDescriptor(&sfTensor));
 
     checkCUDNN(cudnnCreate(&cudnnHandle));
-    checkCUDNN(cudnnSetTensor4dDescriptor(fcTensor, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, BATCH_SIZE, NUM_CLASSES, 1, 1));
+    checkCUDNN(cudnnSetTensor4dDescriptor(sfTensor, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, BATCH_SIZE, NUM_CLASSES, 1, 1));
 
     checkCUDNN(cudnnSoftmaxForward(
         cudnnHandle,
         CUDNN_SOFTMAX_ACCURATE,
         CUDNN_SOFTMAX_MODE_CHANNEL,
         &alpha,
-        fcTensor,
+        sfTensor,
         device_x,
         &beta,
-        fcTensor,
+        sfTensor,
         device_y
     ));
 
@@ -58,16 +76,16 @@ int main()
         CUDNN_SOFTMAX_ACCURATE,
         CUDNN_SOFTMAX_MODE_CHANNEL,
         &alpha,
-        fcTensor,
+        sfTensor,
         device_y,
-        fcTensor,
+        sfTensor,
         device_dy,
         &beta,
-        fcTensor,
+        sfTensor,
         device_dx
     ));
 
-    checkCUDNN(cudnnDestroyTensorDescriptor(fcTensor));
+    checkCUDNN(cudnnDestroyTensorDescriptor(sfTensor));
     checkCUDNN(cudnnDestroy(cudnnHandle));
 
     checkCudaErrors(cudaMemcpy(host_y, device_y, NUM_BYTES, cudaMemcpyDeviceToHost));
@@ -87,4 +105,6 @@ int main()
         float dx=host_dx[i];
         printf("dx: %f, %f; %f%%\n", dx0,dx, (dx0-dx)/dx0*100);
     }
+
+    return 0;
 }
