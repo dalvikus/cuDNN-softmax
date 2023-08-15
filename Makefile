@@ -2,13 +2,17 @@ all: build
 
 build: sf
 
+softmax.o: softmax.h softmax.c
+	gcc -Wall -c -o softmax.o softmax.c
+softmax: softmax.o
+	gcc -Wall -c -o softmax softmax.o
 sf.o: sf.c error_util.h
 	g++ -Wall -c -o sf.o sf.c -I /usr/local/cuda/include
-sf: sf.o error_util.h
-	/usr/local/cuda/bin/nvcc -ccbin g++ -m64 -o sf sf.o -L/usr/local/cuda/lib64 -lcudnn
+sf: softmax.o sf.o
+	/usr/local/cuda/bin/nvcc -ccbin g++ -m64 -o sf softmax.o sf.o -L/usr/local/cuda/lib64 -lcudnn
 
 clean:
-	rm -f sf.o sf
+	rm -f softmax.o sf.o sf
 
 run: sf
 	./sf
