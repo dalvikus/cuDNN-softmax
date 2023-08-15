@@ -6,10 +6,10 @@
 #include <ctime> // time
 #include "softmax.h"
 
-const int BATCH_SIZE=1;
-const int NUM_CLASSES=4;
-const int NUM_ELEMENTS=BATCH_SIZE*NUM_CLASSES;
-const int NUM_BYTES=sizeof(float)*NUM_ELEMENTS;
+const int BATCH_SIZE = 4;
+const int NUM_CLASSES = 10;
+const int NUM_ELEMENTS = BATCH_SIZE*NUM_CLASSES;
+const int NUM_BYTES = sizeof(float) * NUM_ELEMENTS;
 
 void set_x(float x[], int num_elements)
 {
@@ -25,17 +25,26 @@ void set_x(float x[], int num_elements)
 int main(void)
 {
     std::srand(std::time(nullptr));
-    int class_id=std::rand() % NUM_CLASSES;
-    printf("INFO: class_id=%d\n", class_id);
-
-    float host_y0[NUM_CLASSES];
-    float host_x[NUM_CLASSES];
-    set_x(host_x, NUM_CLASSES);
-    softmax(host_x, host_y0, NUM_CLASSES);
-    for (int i = 0; i < NUM_CLASSES; ++i) {
-        printf("[%d]: %f -> %f\n", i, host_x[i], host_y0[i]);
+    int class_ids[BATCH_SIZE];
+    for (int i = 0; i < BATCH_SIZE; ++i) {
+        int class_id = std::rand() % NUM_CLASSES;
+        class_ids[i] = class_id;
+        printf("class_ids[%d]: %d\n", i, class_id);
     }
-    float host_y[NUM_CLASSES]; // to be compared with host_y0
+
+    float host_y0[NUM_ELEMENTS];
+    float host_x[NUM_ELEMENTS];
+    set_x(host_x, NUM_ELEMENTS);
+    for (int k = 0; k < BATCH_SIZE; ++k) {
+        const float *x_ptr = host_x + k * NUM_CLASSES; // host_x[k][...]
+        float *y_ptr = host_y0 + k * NUM_CLASSES; // host_y0[k][...]
+        printf("%p\n", x_ptr);
+        softmax(x_ptr, y_ptr, NUM_CLASSES);
+        for (int i = 0; i < NUM_CLASSES; ++i) {
+            printf("[%d][%d]: %f -> %f\n", k, i, x_ptr[i], y_ptr[i]);
+        }
+    }
+    float host_y[NUM_ELEMENTS]; // to be compared with host_y0
 
 /**
 note that
@@ -95,17 +104,27 @@ in other words,
     dL/dxk = yk - 1 if k=i      (8)
            = yk     otherwise
 **/
-    float host_dy[NUM_CLASSES]={0};
+    float host_dy[NUM_ELEMENTS]={0};
     // from (3)
-    host_dy[class_id] = -1 / host_y0[class_id];
-    // from (8)
-    float host_dx0[NUM_CLASSES];
-    for (int i = 0; i < NUM_CLASSES; ++i) {
-        host_dx0[i] = host_y0[i];
-        if (i == class_id)
-            host_dx0[i] -= 1;
+    for (int k = 0; k < BATCH_SIZE; ++k) {
+        int class_id = class_ids[k];
+        float *y_ptr = host_dy + k * NUM_CLASSES; // host_dy[k][...]
+        float *y0_ptr = host_y0 + k * NUM_CLASSES; // host_y0[k][...]
+        y_ptr[class_id] = -1 / y0_ptr[class_id];
     }
-    float host_dx[NUM_CLASSES]; // to be compared with host_dx0
+    // from (8)
+    float host_dx0[NUM_ELEMENTS];
+    for (int k = 0; k < BATCH_SIZE; ++k) {
+        int class_id = class_ids[k];
+        float *dx0_ptr = host_dx0 + k * NUM_CLASSES; // host_dx0[k][...]
+        float *y0_ptr = host_y0 + k * NUM_CLASSES; // host_y0[k][...]
+        for (int i = 0; i < NUM_CLASSES; ++i) {
+            dx0_ptr[i] = y0_ptr[i];
+            if (i == class_id)
+                dx0_ptr[i] -= 1;
+        }
+    }
+    float host_dx[NUM_ELEMENTS]; // to be compared with host_dx0
 
     float *device_x; // copied from host_x
     float *device_y; // copied to host_y
@@ -130,7 +149,7 @@ in other words,
 
     checkCUDNN(cudnnSoftmaxForward(
         cudnnHandle,
-        CUDNN_SOFTMAX_ACCURATE, // x'=x-max(x)
+        CUDNN_SOFTMAX_ACCURATE, // x' = x - max(x)
         CUDNN_SOFTMAX_MODE_CHANNEL,
         &alpha,
         sfTensor,
@@ -142,7 +161,7 @@ in other words,
 
     checkCUDNN(cudnnSoftmaxBackward(
         cudnnHandle,
-        CUDNN_SOFTMAX_ACCURATE, // x'=x-max(x)
+        CUDNN_SOFTMAX_ACCURATE, // x' = x - max(x)
         CUDNN_SOFTMAX_MODE_CHANNEL,
         &alpha,
         sfTensor,
@@ -165,14 +184,22 @@ in other words,
     checkCudaErrors(cudaFree(device_dx));
     checkCudaErrors(cudaFree(device_dy));
 
-    for (int i = 0; i < NUM_CLASSES; ++i) {
-        printf("[%d]: ...\n", i);
-        float y0=host_y0[i];
-        float y=host_y[i];
-        printf("y: %f, %f; %f%%\n", y0,y, (y0-y)/y0*100);
-        float dx0=host_dx0[i];
-        float dx=host_dx[i];
-        printf("dx: %f, %f; %f%%\n", dx0,dx, (dx0-dx)/dx0*100);
+    for (int k = 0; k < BATCH_SIZE; ++k) {
+        int class_id = class_ids[k];
+        printf("samples[%d]: class_id=%d\n", k, class_id);
+        float *y0_ptr = host_y0 + k * NUM_CLASSES; // host_y0[k][...]
+        float *y_ptr = host_y + k * NUM_CLASSES; // host_y[k][...]
+        float *dx0_ptr = host_dx0 + k * NUM_CLASSES; // host_dx0[k][...]
+        float *dx_ptr = host_dx + k * NUM_CLASSES; // host_dx[k][...]
+        for (int i = 0; i < NUM_CLASSES; ++i) {
+            printf("class[%d]: ...\n", i);
+            float y0 = y0_ptr[i];
+            float y = y_ptr[i];
+            printf("y: %f, %f; %f%%\n", y0,y, (y0-y)/y0*100);
+            float dx0 = dx0_ptr[i];
+            float dx = dx_ptr[i];
+            printf("dx: %f, %f; %f%%\n", dx0,dx, (dx0-dx)/dx0*100);
+        }
     }
 
     return 0;

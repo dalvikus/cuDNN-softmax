@@ -6,12 +6,12 @@
 void softmax(const float x[], float y[], int num_elements)
 {
     int i;
-    float* tmp=0;
+    float *tmp = 0;
 
     tmp = (float *) malloc(sizeof(float) * num_elements);
     assert(tmp);
 
-    float max=FLT_MIN;
+    float max = FLT_MIN;
     for (i = 0; i < num_elements; ++i) {
         if (x[i] > max) {
             max = x[i];
