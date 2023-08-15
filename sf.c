@@ -2,26 +2,39 @@
 #include <stdlib.h> // atoi
 #include <assert.h> // assert
 #include "error_util.h"
+#include <cstdlib> // rand
+#include <ctime> // time
+#include "softmax.h"
 
 const int BATCH_SIZE=1;
 const int NUM_CLASSES=4;
 const int NUM_ELEMENTS=BATCH_SIZE*NUM_CLASSES;
 const int NUM_BYTES=sizeof(float)*NUM_ELEMENTS;
 
-int main(int argc, const char* argv[])
+void set_x(float x[], int num_elements)
 {
-    int class_id=0;
-    if (argc > 1) {
-        class_id = atoi(argv[1]);
-        assert(0 <= class_id);
-        assert(class_id < NUM_CLASSES);
+    for (int i = 0; i < num_elements; ++i) {
+        float f = std::rand(); // [0,RAND_MAX]
+        f /= RAND_MAX; // [0,1]
+        f -= 0.5f; // [-0.5,0.5]
+        f *= 2; // [-1,1]
+        x[i] = f;
     }
+}
+
+int main(void)
+{
+    std::srand(std::time(nullptr));
+    int class_id=std::rand() % NUM_CLASSES;
     printf("INFO: class_id=%d\n", class_id);
 
-    // any random values
-    const float host_x[NUM_CLASSES]={1.1, 2.2, 0.2, -1.7};
-    // y=sf(x) in math; yi=exp(xi)/∑exp(xj)
-    float host_y0[NUM_CLASSES]={0.22363628, 0.6718406 , 0.09092373, 0.01359934};
+    float host_y0[NUM_CLASSES];
+    float host_x[NUM_CLASSES];
+    set_x(host_x, NUM_CLASSES);
+    softmax(host_x, host_y0, NUM_CLASSES);
+    for (int i = 0; i < NUM_CLASSES; ++i) {
+        printf("[%d]: %f -> %f\n", i, host_x[i], host_y0[i]);
+    }
     float host_y[NUM_CLASSES]; // to be compared with host_y0
 
 /**
@@ -117,7 +130,7 @@ in other words,
 
     checkCUDNN(cudnnSoftmaxForward(
         cudnnHandle,
-        CUDNN_SOFTMAX_ACCURATE,
+        CUDNN_SOFTMAX_ACCURATE, // x'=x-max(x)
         CUDNN_SOFTMAX_MODE_CHANNEL,
         &alpha,
         sfTensor,
@@ -129,7 +142,7 @@ in other words,
 
     checkCUDNN(cudnnSoftmaxBackward(
         cudnnHandle,
-        CUDNN_SOFTMAX_ACCURATE,
+        CUDNN_SOFTMAX_ACCURATE, // x'=x-max(x)
         CUDNN_SOFTMAX_MODE_CHANNEL,
         &alpha,
         sfTensor,
