@@ -4,12 +4,17 @@
 #include "error_util.h"
 #include <cstdlib> // rand
 #include <ctime> // time
+#include <cmath> // fabsf
 #include "softmax.h"
 
 const int BATCH_SIZE = 4;
 const int NUM_CLASSES = 10;
 const int NUM_ELEMENTS = BATCH_SIZE*NUM_CLASSES;
 const int NUM_BYTES = sizeof(float) * NUM_ELEMENTS;
+// https://numpy.org/doc/stable/reference/generated/numpy.allclose.html
+//  absolute(a - b) <= (atol + rtol * absolute(b))
+const float RTOL = 1.e-5;
+const float ATOL = 1.e-8;
 
 void set_x(float x[], int num_elements)
 {
@@ -22,6 +27,12 @@ void set_x(float x[], int num_elements)
     }
 }
 
+bool diff(float f1, float f2)
+{
+    // absolute(a - b) <= (atol + rtol * absolute(b))
+    return fabsf(f1 - f2) <= (ATOL + RTOL * fabsf(f2));
+}
+
 int main(void)
 {
     std::srand(std::time(nullptr));
@@ -29,7 +40,7 @@ int main(void)
     for (int i = 0; i < BATCH_SIZE; ++i) {
         int class_id = std::rand() % NUM_CLASSES;
         class_ids[i] = class_id;
-        printf("class_ids[%d]: %d\n", i, class_id);
+        printf("[INFO] class_ids[%d]: %d\n", i, class_id);
     }
 
     float host_y0[NUM_ELEMENTS];
@@ -38,10 +49,9 @@ int main(void)
     for (int k = 0; k < BATCH_SIZE; ++k) {
         const float *x_ptr = host_x + k * NUM_CLASSES; // host_x[k][...]
         float *y_ptr = host_y0 + k * NUM_CLASSES; // host_y0[k][...]
-        printf("%p\n", x_ptr);
         softmax(x_ptr, y_ptr, NUM_CLASSES);
         for (int i = 0; i < NUM_CLASSES; ++i) {
-            printf("[%d][%d]: %f -> %f\n", k, i, x_ptr[i], y_ptr[i]);
+            printf("[INFO] [%d][%d]: %f -> %f\n", k, i, x_ptr[i], y_ptr[i]);
         }
     }
     float host_y[NUM_ELEMENTS]; // to be compared with host_y0
@@ -186,19 +196,25 @@ in other words,
 
     for (int k = 0; k < BATCH_SIZE; ++k) {
         int class_id = class_ids[k];
-        printf("samples[%d]: class_id=%d\n", k, class_id);
+        printf("[INFO] samples[%d]: class_id=%d\n", k, class_id);
         float *y0_ptr = host_y0 + k * NUM_CLASSES; // host_y0[k][...]
         float *y_ptr = host_y + k * NUM_CLASSES; // host_y[k][...]
         float *dx0_ptr = host_dx0 + k * NUM_CLASSES; // host_dx0[k][...]
         float *dx_ptr = host_dx + k * NUM_CLASSES; // host_dx[k][...]
         for (int i = 0; i < NUM_CLASSES; ++i) {
-            printf("class[%d]: ...\n", i);
+            printf("[INFO] class[%d]: ...\n", i);
             float y0 = y0_ptr[i];
             float y = y_ptr[i];
-            printf("y: %f, %f; %f%%\n", y0,y, (y0-y)/y0*100);
+            bool b1 = diff(y0, y);
+            bool b2 = diff(y, y0);
+            if (!b1 || !b2)
+                printf("[WARN] y: %f, %f; %f%%\n", y0,y, (y0-y)/y0*100);
             float dx0 = dx0_ptr[i];
             float dx = dx_ptr[i];
-            printf("dx: %f, %f; %f%%\n", dx0,dx, (dx0-dx)/dx0*100);
+            b1 = diff(dx0, dx);
+            b2 = diff(dx, dx0);
+            if (!b1 || !b2)
+                printf("[WARN] dx: %f, %f; %f%%\n", dx0,dx, (dx0-dx)/dx0*100);
         }
     }
 
